@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dopamine Racing — Shell Shortlist</title>
+<style>
+  :root { --bg:#0a0a0b; --surface:#141416; --surface2:#1c1c1f; --border:#2a2a2e;
+    --text:#f4f4f5; --text2:#a1a1aa; --text3:#71717a; --accent:#FACC15; --gavin:#60a5fa; --shane:#f472b6; --alt:#34d399; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text);
+    font-family:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    line-height:1.5; padding:24px 16px 64px; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1180px; margin:0 auto; }
+  header { margin-bottom:32px; }
+  .brand { color:var(--accent); font-size:12px; letter-spacing:0.18em; text-transform:uppercase; font-weight:600; }
+  h1 { font-size:26px; font-weight:600; margin:4px 0 8px; }
+  header p { color:var(--text2); font-size:13px; max-width:640px; }
+  header .hint { color:var(--text3); font-size:12px; margin-top:10px; }
+  .sec { margin-top:40px; }
+  .sec-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px;
+    padding-bottom:14px; margin-bottom:18px; border-bottom:1px solid var(--border); }
+  .sec-head h2 { font-size:18px; font-weight:600; }
+  .sec-head p { color:var(--text2); font-size:12px; flex:1 1 240px; }
+  .sec-letters { color:var(--text3); font-size:12px; letter-spacing:0.25em; }
+  .sec-g h2 { color:var(--gavin); }  .sec-s h2 { color:var(--shane); }  .sec-x h2 { color:var(--accent); }  .sec-a h2 { color:var(--alt); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:16px; }
+  .card { position:relative; background:var(--surface); border:1px solid var(--border);
+    border-radius:8px; overflow:hidden; display:flex; flex-direction:column; }
+  .letter { position:absolute; top:8px; left:8px; z-index:3; width:30px; height:30px;
+    display:grid; place-items:center; background:var(--accent); color:#000; font-weight:700;
+    font-size:16px; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,.4); }
+  .sec-g .letter { background:var(--gavin); }  .sec-s .letter { background:var(--shane); }  .sec-a .letter { background:var(--alt); }
+  .imgbtn { position:relative; border:0; padding:0; margin:0; cursor:zoom-in;
+    aspect-ratio:4/3; background:var(--surface2); display:block; width:100%; overflow:hidden; }
+  .imgbtn img { width:100%; height:100%; object-fit:cover; display:block; transition:transform .2s; }
+  .imgbtn:hover img { transform:scale(1.04); }
+  .zoom { position:absolute; bottom:8px; right:8px; z-index:2; background:rgba(0,0,0,.6);
+    color:#fff; font-size:14px; width:26px; height:26px; display:grid; place-items:center;
+    border-radius:5px; opacity:0; transition:opacity .15s; }
+  .imgbtn:hover .zoom { opacity:1; }
+  .noimg { color:var(--text3); font-size:11px; text-transform:uppercase; letter-spacing:0.1em;
+    display:grid; place-items:center; height:100%; }
+  figcaption { padding:12px; display:flex; flex-direction:column; gap:4px; flex:1; }
+  .code { color:var(--accent); font-size:12px; font-weight:600; letter-spacing:0.04em;
+    text-decoration:none; align-self:flex-start; }
+  .code:hover { text-decoration:underline; }
+  .sec-g .code { color:var(--gavin); }  .sec-s .code { color:var(--shane); }  .sec-a .code { color:var(--alt); }
+  .name { font-size:13px; color:var(--text); flex:1; }
+  .store { color:var(--text3); font-size:11px; margin-top:4px; letter-spacing:0.02em; }
+  .lightbox { position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.92);
+    display:none; align-items:center; justify-content:center; padding:32px; cursor:zoom-out; }
+  .lightbox.open { display:flex; }
+  .lb-inner { max-width:92vw; max-height:92vh; display:flex; flex-direction:column;
+    align-items:center; gap:14px; cursor:default; }
+  .lb-inner img { max-width:92vw; max-height:80vh; object-fit:contain; border-radius:6px;
+    box-shadow:0 8px 40px rgba(0,0,0,.6); }
+  .lb-cap { color:var(--text); font-size:14px; text-align:center; }
+  .lb-cap .lb-letter { display:inline-grid; place-items:center; width:24px; height:24px;
+    background:var(--accent); color:#000; font-weight:700; border-radius:5px; margin-right:8px; vertical-align:middle; }
+  .lb-cap .lb-code { color:var(--accent); font-weight:600; }
+  .lb-close { position:fixed; top:18px; right:22px; z-index:51; background:none; border:0;
+    color:#fff; font-size:30px; cursor:pointer; line-height:1; opacity:.8; }
+  .lb-close:hover { opacity:1; }
+  .lb-hint { position:fixed; bottom:18px; left:0; right:0; text-align:center; color:var(--text3); font-size:11px; }
+  footer { margin-top:48px; padding-top:16px; border-top:1px solid var(--border); color:var(--text3); font-size:11px; }
+  footer a { color:var(--text2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">Dopamine Racing</div>
+      <h1>Shell Shortlist</h1>
+      <p>Full-JDM drift shortlist from the mood board, split three ways. Tap an image to enlarge, or tap the model number to open the SuperG listing.</p>
+      <p class="hint">Each shell has a letter (A&ndash;N) &mdash; use it to call out picks fast: &ldquo;I'm sold on C and K.&rdquo;</p>
+    </header>
+
+  <section class="sec sec-g">
+    <div class="sec-head">
+      <h2>Gavin — unique picks</h2>
+      <p>My picks Shane didn’t choose. GR86 + Origin Labo + carbon lean.</p>
+      <span class="sec-letters">A B C D E</span>
+    </div>
+    <div class="grid">
+      <figure class="card">
+        <span class="letter">A</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/B72D2996-75EB-4A9E-B207-614AD63DBD27_700x700.jpg','A','PAB-3199','Toyota 86 ZN6 BN-Sport BLS')" aria-label="Enlarge PAB-3199">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/B72D2996-75EB-4A9E-B207-614AD63DBD27_700x700.jpg" alt="PAB-3199" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2FB72D2996-75EB-4A9E-B207-614AD63DBD27_700x700.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/toyota-zn6-gt86-frs-brz-bn-sport-bls-luxury-sports-1-10-body-set-pandora-pab-3199" target="_blank" rel="noopener">PAB-3199 ↗</a>
+          <div class="name">Toyota 86 ZN6 BN-Sport BLS</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">B</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/files/bn-gr86-bls-05.webp?v=1723140128','B','PAB-3218','Toyota GR86 BLS BN Sport (your shortlist)')" aria-label="Enlarge PAB-3218">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/files/bn-gr86-bls-05.webp?v=1723140128" alt="PAB-3218" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Ffiles%2Fbn-gr86-bls-05.webp%3Fv%3D1723140128" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/toyota-zn6-gt86-frs-brz-bls-bn-sport-1-10-body-set-pandora-pab-3218" target="_blank" rel="noopener">PAB-3218 ↗</a>
+          <div class="name">Toyota GR86 BLS BN Sport (your shortlist)</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">C</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/img_3835.jpg','C','PAB-3194','Nissan 180SX 風神 Fujin (Wind God) · Origin Labo')" aria-label="Enlarge PAB-3194">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/img_3835.jpg" alt="PAB-3194" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2Fimg_3835.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/nissan-180sx-%E9%A2%A8%E7%A5%9E-fujin-wind-god-origin-labo-1-10-body-set-pandora-pab-3194" target="_blank" rel="noopener">PAB-3194 ↗</a>
+          <div class="name">Nissan 180SX 風神 Fujin (Wind God) · Origin Labo</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">D</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://supergdrift.com/cdn/shop/products/img_4240_1061x.jpg?v=1765499372','D','FCB-195C','Nissan S15 Raijin Thunder God CARBON · Origin Labo')" aria-label="Enlarge FCB-195C">
+          <img src="https://supergdrift.com/cdn/shop/products/img_4240_1061x.jpg?v=1765499372" alt="FCB-195C" loading="lazy" data-proxy="https://images.weserv.nl/?url=supergdrift.com%2Fcdn%2Fshop%2Fproducts%2Fimg_4240_1061x.jpg%3Fv%3D1765499372" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/carbon-version-limited-edition-nissan-silvia-s15-raijin-thunder-god-origin-labo-1-10-body-set-pandora-fcb-195c" target="_blank" rel="noopener">FCB-195C ↗</a>
+          <div class="name">Nissan S15 Raijin Thunder God CARBON · Origin Labo</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">E</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/files/IMG-4070_700x700.jpg','E','AD-RB17','Toyota GR86 Naoki Nakamura Street · Driver Spec')" aria-label="Enlarge AD-RB17">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/files/IMG-4070_700x700.jpg" alt="AD-RB17" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Ffiles%2FIMG-4070_700x700.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/toyota-gr86-naoki-nakamura-street-ver-1-10-real-grade-body-addiction-ad-rb17" target="_blank" rel="noopener">AD-RB17 ↗</a>
+          <div class="name">Toyota GR86 Naoki Nakamura Street · Driver Spec</div>
+          
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec sec-s">
+    <div class="sec-head">
+      <h2>Shane — unique picks</h2>
+      <p>Shane’s picks I didn’t choose. S15 + D-MAX lean. Euros parked for the racing build.</p>
+      <span class="sec-letters">F G H I J</span>
+    </div>
+    <div class="grid">
+      <figure class="card">
+        <span class="letter">F</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/pab-148.jpg?v=1706104689','F','PAB-3148','Nissan S15 Silvia Coupe Origin Labo')" aria-label="Enlarge PAB-3148">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/pab-148.jpg?v=1706104689" alt="PAB-3148" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2Fpab-148.jpg%3Fv%3D1706104689" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/nissan-s15-silvia-coupe-origin-labo-1-10-body-set-pandora-pab-3148" target="_blank" rel="noopener">PAB-3148 ↗</a>
+          <div class="name">Nissan S15 Silvia Coupe Origin Labo</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">G</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/files/R31W438-1_700x700.webp','G','R31W438','Nissan S15 Silvia D-MAX Drift Spec')" aria-label="Enlarge R31W438">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/files/R31W438-1_700x700.webp" alt="R31W438" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Ffiles%2FR31W438-1_700x700.webp" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/d-max-nissan-s15-silvia-drift-spec-253mm-wheel-base-r31world-r31w438" target="_blank" rel="noopener">R31W438 ↗</a>
+          <div class="name">Nissan S15 Silvia D-MAX Drift Spec</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">H</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/12011444_61a70badeec12.jpg?v=1706121940','H','R31W425','Nissan S15 Silvia D-MAX Racing Spec')" aria-label="Enlarge R31W425">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/12011444_61a70badeec12.jpg?v=1706121940" alt="R31W425" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2F12011444_61a70badeec12.jpg%3Fv%3D1706121940" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/d-max-nissan-s15-silvia-racing-spec-253mm-wheel-base-r31world-r31w425" target="_blank" rel="noopener">R31W425 ↗</a>
+          <div class="name">Nissan S15 Silvia D-MAX Racing Spec</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">I</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/files/sd-ms15b_700x700.jpg','I','SD-MS15BLB','Nissan S15 D1GP Mercury Sayaka PAINTED · Driver Spec')" aria-label="Enlarge SD-MS15BLB">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/files/sd-ms15b_700x700.jpg" alt="SD-MS15BLB" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Ffiles%2Fsd-ms15b_700x700.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/painted-d1gp-mercury-sayaka-nissan-s15-silvia-1-10-body-set-yokomo-sd-ms15blb" target="_blank" rel="noopener">SD-MS15BLB ↗</a>
+          <div class="name">Nissan S15 D1GP Mercury Sayaka PAINTED · Driver Spec</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">J</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/202112210312261a.jpg','J','720020','Toyota A90 Supra Rocket Bunny Widebody')" aria-label="Enlarge 720020">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/202112210312261a.jpg" alt="720020" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2F202112210312261a.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/toyota-supra-a90-a90rb-200mm-f-202mm-r-rocket-bunny-widebody-1-10-drift-body-mst-720020" target="_blank" rel="noopener">720020 ↗</a>
+          <div class="name">Toyota A90 Supra Rocket Bunny Widebody</div>
+          
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec sec-x">
+    <div class="sec-head">
+      <h2>Shared — both picked</h2>
+      <p>Chosen independently by both. The team spine.</p>
+      <span class="sec-letters">K L M N</span>
+    </div>
+    <div class="grid">
+      <figure class="card">
+        <span class="letter">K</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/toyota-supra-goes-full-supercar-jdm-batmobile-widebody-rendering-156940_1.jpg','K','AD-RB7','Toyota A90 Supra GR Hycade SWB')" aria-label="Enlarge AD-RB7">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/toyota-supra-goes-full-supercar-jdm-batmobile-widebody-rendering-156940_1.jpg" alt="AD-RB7" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2Ftoyota-supra-goes-full-supercar-jdm-batmobile-widebody-rendering-156940_1.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/toyota-a90-supra-gr-hycade-208mm-247mm-wheelbase-body-addiction-ad-rb7" target="_blank" rel="noopener">AD-RB7 ↗</a>
+          <div class="name">Toyota A90 Supra GR Hycade SWB</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">L</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/img_4240.jpg','L','PAB-3195','Nissan S15 雷神 Raijin (Thunder God) · Origin Labo')" aria-label="Enlarge PAB-3195">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/img_4240.jpg" alt="PAB-3195" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2Fimg_4240.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/nissan-silvia-s15-raijin-thunder-god-origin-labo-1-10-body-set-pandora-pab-3195" target="_blank" rel="noopener">PAB-3195 ↗</a>
+          <div class="name">Nissan S15 雷神 Raijin (Thunder God) · Origin Labo</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">M</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/AF-SKS14_1.jpg','M','TAF31000','Nissan S14 240SX SEIJI livery')" aria-label="Enlarge TAF31000">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/AF-SKS14_1.jpg" alt="TAF31000" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2FAF-SKS14_1.jpg" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/seiji-s14-nissan-240sx-silvia-1-10-drift-body-shell-rc-arlos-24k-af-sks14" target="_blank" rel="noopener">TAF31000 ↗</a>
+          <div class="name">Nissan S14 240SX SEIJI livery</div>
+          
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">N</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://cdn.shopify.com/s/files/1/0683/9825/2271/products/Arlos-Silvia-S14.9-1-1100x1100-1.png','N','RC-AF-NS14.9','Nissan S14.9 — S14 body + S15 front/rear')" aria-label="Enlarge RC-AF-NS14.9">
+          <img src="https://cdn.shopify.com/s/files/1/0683/9825/2271/products/Arlos-Silvia-S14.9-1-1100x1100-1.png" alt="RC-AF-NS14.9" loading="lazy" data-proxy="https://images.weserv.nl/?url=cdn.shopify.com%2Fs%2Ffiles%2F1%2F0683%2F9825%2F2271%2Fproducts%2FArlos-Silvia-S14.9-1-1100x1100-1.png" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://supergdrift.com/products/nissan-s14-9-s14-chassis-with-s15-front-rear-1-10-drift-body-shell-rc-arlos-rc-af-ns14-9" target="_blank" rel="noopener">RC-AF-NS14.9 ↗</a>
+          <div class="name">Nissan S14.9 — S14 body + S15 front/rear</div>
+          
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="sec sec-a">
+    <div class="sec-head">
+      <h2>Alternatives — different art, different retailers</h2>
+      <p>Some are the same shell with alternate photography from a different store (useful for NZ shipping compares). Others are related variants worth a second look.</p>
+      <span class="sec-letters">O P Q R S T U V W</span>
+    </div>
+    <div class="grid">
+      <figure class="card">
+        <span class="letter">O</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://rc-arlos.com/image/cache/catalog/LBWK_Works_35GT-RR/24KRC_24K1300_3-1100x1100.png.webp','O','TAF13000','24K LBWK Works GT Nissan 35GT-RR')" aria-label="Enlarge TAF13000">
+          <img src="https://rc-arlos.com/image/cache/catalog/LBWK_Works_35GT-RR/24KRC_24K1300_3-1100x1100.png.webp" alt="TAF13000" loading="lazy" data-proxy="https://images.weserv.nl/?url=rc-arlos.com%2Fimage%2Fcache%2Fcatalog%2FLBWK_Works_35GT-RR%2F24KRC_24K1300_3-1100x1100.png.webp" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://rc-arlos.com/lbwk-works-gt-nissan-35gt-rr.html" target="_blank" rel="noopener">TAF13000 ↗</a>
+          <div class="name">24K LBWK Works GT Nissan 35GT-RR</div>
+          <div class="store">via RC-Arlos</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">P</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://rc-arlos.com/image/cache/catalog/Nissan_James_Deane_S14_9/james-deane-nissan-s14-9-a19207-1100x1100.png.webp','P','TAF40000','24K James Deane Nissan S14.9 · Driver Spec')" aria-label="Enlarge TAF40000">
+          <img src="https://rc-arlos.com/image/cache/catalog/Nissan_James_Deane_S14_9/james-deane-nissan-s14-9-a19207-1100x1100.png.webp" alt="TAF40000" loading="lazy" data-proxy="https://images.weserv.nl/?url=rc-arlos.com%2Fimage%2Fcache%2Fcatalog%2FNissan_James_Deane_S14_9%2Fjames-deane-nissan-s14-9-a19207-1100x1100.png.webp" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://rc-arlos.com/body-shell-s/body-shell-1-10-scale/james-deane-nissan-s14-9.html" target="_blank" rel="noopener">TAF40000 ↗</a>
+          <div class="name">24K James Deane Nissan S14.9 · Driver Spec</div>
+          <div class="store">via RC-Arlos</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">Q</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://rc-arlos.com/image/cache/catalog/Arlos_RX7_FD_V3/24KRC_24K1710_6-1100x1100.png.webp','Q','TAF17010','24K Mazda RX-7 FD GR FighterWorks')" aria-label="Enlarge TAF17010">
+          <img src="https://rc-arlos.com/image/cache/catalog/Arlos_RX7_FD_V3/24KRC_24K1710_6-1100x1100.png.webp" alt="TAF17010" loading="lazy" data-proxy="https://images.weserv.nl/?url=rc-arlos.com%2Fimage%2Fcache%2Fcatalog%2FArlos_RX7_FD_V3%2F24KRC_24K1710_6-1100x1100.png.webp" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://rc-arlos.com/body-shell-s/body-shell-1-10-scale/mazda-rx-7-fd-gr-fighterworks.html" target="_blank" rel="noopener">TAF17010 ↗</a>
+          <div class="name">24K Mazda RX-7 FD GR FighterWorks</div>
+          <div class="store">via RC-Arlos</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">R</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://rc-arlos.com/image/cache/catalog/Toyota_Supra_GR_MK5_A90_Series/24KRC_24K1200_2-1100x1100.png.webp','R','TAF12000','24K Toyota Supra Mk5 A90 LBWK')" aria-label="Enlarge TAF12000">
+          <img src="https://rc-arlos.com/image/cache/catalog/Toyota_Supra_GR_MK5_A90_Series/24KRC_24K1200_2-1100x1100.png.webp" alt="TAF12000" loading="lazy" data-proxy="https://images.weserv.nl/?url=rc-arlos.com%2Fimage%2Fcache%2Fcatalog%2FToyota_Supra_GR_MK5_A90_Series%2F24KRC_24K1200_2-1100x1100.png.webp" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://rc-arlos.com/body-shell-s/body-shell-1-10-scale/toyota-supra-mk5-a90-lbwk.html" target="_blank" rel="noopener">TAF12000 ↗</a>
+          <div class="name">24K Toyota Supra Mk5 A90 LBWK</div>
+          <div class="store">via RC-Arlos</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">S</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://www.driftmanjirc.com/cdn/shop/files/720020_MST_Supra_A90_RC_Body_Main.png?v=1768312543&amp;width=823','S','720020','MST Toyota A90 Supra Rocket Bunny (alt photo of J)')" aria-label="Enlarge 720020">
+          <img src="https://www.driftmanjirc.com/cdn/shop/files/720020_MST_Supra_A90_RC_Body_Main.png?v=1768312543&amp;width=823" alt="720020" loading="lazy" data-proxy="https://images.weserv.nl/?url=www.driftmanjirc.com%2Fcdn%2Fshop%2Ffiles%2F720020_MST_Supra_A90_RC_Body_Main.png%3Fv%3D1768312543%26width%3D823" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://www.driftmanjirc.com/products/mst-supra-a90-rocket-bunny-rc-body-200mm-720020" target="_blank" rel="noopener">720020 ↗</a>
+          <div class="name">MST Toyota A90 Supra Rocket Bunny (alt photo of J)</div>
+          <div class="store">via DriftManjiRC</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">T</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://www.driftmanjirc.com/cdn/shop/files/PAB-3207_Nissan_R35_BN_Sports_Main.png?v=1768129307&amp;width=823','T','PAB-3207','Pandora Nissan R35 GT-R BN Sports (clear ver. of my PAB-3207CV)')" aria-label="Enlarge PAB-3207">
+          <img src="https://www.driftmanjirc.com/cdn/shop/files/PAB-3207_Nissan_R35_BN_Sports_Main.png?v=1768129307&amp;width=823" alt="PAB-3207" loading="lazy" data-proxy="https://images.weserv.nl/?url=www.driftmanjirc.com%2Fcdn%2Fshop%2Ffiles%2FPAB-3207_Nissan_R35_BN_Sports_Main.png%3Fv%3D1768129307%26width%3D823" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://www.driftmanjirc.com/products/pandora-rc-gtr35-bn-sports-rc-body-pab-3207" target="_blank" rel="noopener">PAB-3207 ↗</a>
+          <div class="name">Pandora Nissan R35 GT-R BN Sports (clear ver. of my PAB-3207CV)</div>
+          <div class="store">via DriftManjiRC</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">U</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://www.driftmanjirc.com/cdn/shop/files/PAB-3195_Nissan_S15_Rajin_Thunder_Main.png?v=1768062836&amp;width=823','U','PAB-3195','Pandora S15 Raijin Thunder God (alt photo of L)')" aria-label="Enlarge PAB-3195">
+          <img src="https://www.driftmanjirc.com/cdn/shop/files/PAB-3195_Nissan_S15_Rajin_Thunder_Main.png?v=1768062836&amp;width=823" alt="PAB-3195" loading="lazy" data-proxy="https://images.weserv.nl/?url=www.driftmanjirc.com%2Fcdn%2Fshop%2Ffiles%2FPAB-3195_Nissan_S15_Rajin_Thunder_Main.png%3Fv%3D1768062836%26width%3D823" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://www.driftmanjirc.com/products/pandora-rc-silvia-s15-raijin-rc-body-pab-3195" target="_blank" rel="noopener">PAB-3195 ↗</a>
+          <div class="name">Pandora S15 Raijin Thunder God (alt photo of L)</div>
+          <div class="store">via DriftManjiRC</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">V</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://www.driftmanjirc.com/cdn/shop/files/PAB-3213_Nissan_S15_Silvia_BN_sports_Main.png?v=1768128851&amp;width=823','V','PAB-3213','Pandora Nissan S15 Silvia BN Sports')" aria-label="Enlarge PAB-3213">
+          <img src="https://www.driftmanjirc.com/cdn/shop/files/PAB-3213_Nissan_S15_Silvia_BN_sports_Main.png?v=1768128851&amp;width=823" alt="PAB-3213" loading="lazy" data-proxy="https://images.weserv.nl/?url=www.driftmanjirc.com%2Fcdn%2Fshop%2Ffiles%2FPAB-3213_Nissan_S15_Silvia_BN_sports_Main.png%3Fv%3D1768128851%26width%3D823" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://www.driftmanjirc.com/products/pandora-rc-silvia-s15-bn-sports-rc-body-pab-3213" target="_blank" rel="noopener">PAB-3213 ↗</a>
+          <div class="name">Pandora Nissan S15 Silvia BN Sports</div>
+          <div class="store">via DriftManjiRC</div>
+        </figcaption>
+      </figure>
+      <figure class="card">
+        <span class="letter">W</span>
+        <button class="imgbtn" type="button" onclick="openLB('https://www.driftmanjirc.com/cdn/shop/files/TT-8210_Tetsujin_R35_LB_Main.png?v=1768243026&amp;width=823','W','TT-8210','Tetsujin Nissan R35 GT-R LB Works 206mm (pairs w/ my TT-8211B)')" aria-label="Enlarge TT-8210">
+          <img src="https://www.driftmanjirc.com/cdn/shop/files/TT-8210_Tetsujin_R35_LB_Main.png?v=1768243026&amp;width=823" alt="TT-8210" loading="lazy" data-proxy="https://images.weserv.nl/?url=www.driftmanjirc.com%2Fcdn%2Fshop%2Ffiles%2FTT-8210_Tetsujin_R35_LB_Main.png%3Fv%3D1768243026%26width%3D823" onerror="imgErr(this)">
+          <span class="zoom">⤢</span>
+        </button>
+        <figcaption>
+          <a class="code" href="https://www.driftmanjirc.com/products/rc-drift-body-shell-tetsujin-nissan-r35-gt-r-lb-works-206mm-tt-8210" target="_blank" rel="noopener">TT-8210 ↗</a>
+          <div class="name">Tetsujin Nissan R35 GT-R LB Works 206mm (pairs w/ my TT-8211B)</div>
+          <div class="store">via DriftManjiRC</div>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+    <footer>
+      Tap image to enlarge &middot; tap model number to open the SuperG listing. Euros (RS6 Avant, LBWK RS7) parked for the racing build.<br>
+      Mood board: <a href="https://dopamine-racing.github.io/moodboard/" target="_blank">dopamine-racing.github.io/moodboard</a>
+    </footer>
+  </div>
+
+  <div class="lightbox" id="lightbox" onclick="closeLB()">
+    <button class="lb-close" type="button" onclick="closeLB()" aria-label="Close">&times;</button>
+    <div class="lb-inner" onclick="event.stopPropagation()">
+      <img id="lb-img" src="" alt="">
+      <div class="lb-cap" id="lb-cap"></div>
+    </div>
+    <div class="lb-hint">Click anywhere or press Esc to close</div>
+  </div>
+
+  <script>
+    function openLB(url, letter, code, name) {
+      document.getElementById('lb-img').src = url;
+      document.getElementById('lb-cap').innerHTML =
+        '<span class="lb-letter">' + letter + '</span><span class="lb-code">' + code + '</span> — ' + name;
+      document.getElementById('lightbox').classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeLB() {
+      document.getElementById('lightbox').classList.remove('open');
+      document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLB(); });
+    function imgErr(img) {
+      if (img.dataset.proxy && img.dataset.tried !== '1') {
+        img.dataset.tried = '1';
+        img.src = img.dataset.proxy;
+      } else {
+        var btn = img.closest('.imgbtn');
+        if (btn) btn.innerHTML = '<div class="noimg">image unavailable</div>';
+      }
+    }
+</script>
+</body>
+</html>
