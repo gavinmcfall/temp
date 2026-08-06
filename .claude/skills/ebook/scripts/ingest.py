@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import os
+import posixpath
 import re
 import shutil
 import subprocess
@@ -56,30 +57,90 @@ GUTENBERG_END = re.compile(r"\*\*\*\s*END OF (THE|THIS) PROJECT GUTENBERG.*?\*\*
 # ---------------------------------------------------------------- text cleanup
 
 class TextExtractor(HTMLParser):
-    """Strip (X)HTML to plain text while keeping paragraph boundaries."""
+    """Strip (X)HTML to plain text, recording where each id= anchor lands.
+
+    The anchor offsets are what let the table of contents drive chapter
+    splitting: a ToC entry pointing at `ch03.xhtml#chapter_5` needs to know
+    where in the extracted text `chapter_5` actually begins. Offsets are kept
+    against the *unnormalized* buffer, so slicing happens first and whitespace
+    normalization second — normalizing first would shift every offset.
+    """
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts, self.skip_depth = [], 0
+        self.anchors = {}
+        self._len = 0
+
+    def _emit(self, s):
+        self.parts.append(s)
+        self._len += len(s)
 
     def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        for key in ("id", "name"):
+            if (val := attrs.get(key)) and val not in self.anchors:
+                self.anchors[val] = self._len
         if tag in SKIP_TAGS:
             self.skip_depth += 1
         elif tag in BLOCK_TAGS:
-            self.parts.append("\n")
+            self._emit("\n")
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
         if tag in SKIP_TAGS and self.skip_depth:
             self.skip_depth -= 1
         elif tag in BLOCK_TAGS:
-            self.parts.append("\n")
+            self._emit("\n")
 
     def handle_data(self, data):
         if not self.skip_depth:
-            self.parts.append(data)
+            self._emit(data)
+
+    def raw(self):
+        return "".join(self.parts)
 
     def text(self):
-        return normalize("".join(self.parts))
+        return normalize(self.raw())
+
+
+class NavParser(HTMLParser):
+    """Pull ordered (depth, title, href) entries out of an EPUB 3 nav document."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.entries = []
+        self._in_toc = self._seen_toc = False
+        self._depth = 0
+        self._href = None
+        self._label = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "nav":
+            # Prefer the nav explicitly typed as the toc; fall back to the first.
+            if attrs.get("epub:type") == "toc" or not self._seen_toc:
+                self._in_toc, self._seen_toc = True, True
+        elif self._in_toc and tag == "ol":
+            self._depth += 1
+        elif self._in_toc and tag == "a" and attrs.get("href"):
+            self._href, self._label = attrs["href"], []
+
+    def handle_endtag(self, tag):
+        if tag == "nav":
+            self._in_toc = False
+        elif self._in_toc and tag == "ol":
+            self._depth = max(0, self._depth - 1)
+        elif tag == "a" and self._href is not None:
+            title = re.sub(r"\s+", " ", "".join(self._label)).strip()
+            self.entries.append((max(1, self._depth), title, self._href))
+            self._href, self._label = None, []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._label.append(data)
 
 
 def strip_bracket_blocks(text, keywords=("Illustration", "Music", "Sidenote")):
@@ -202,11 +263,149 @@ def split_oversized(chapters, max_tokens):
 
 # -------------------------------------------------------------------- readers
 
+def resolve(base_dir, href):
+    """Resolve an href against the directory of the document that contains it."""
+    href = href.split("#")[0]
+    if not href:
+        return None
+    return posixpath.normpath(posixpath.join(base_dir, href)).lstrip("./")
+
+
+def parse_ncx(raw):
+    """Ordered (depth, title, href) from an EPUB 2 NCX navMap."""
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return []
+    ncx = "{http://www.daisy.org/z3986/2005/ncx/}"
+    out = []
+
+    def walk(node, depth):
+        for pt in node.findall(f"{ncx}navPoint"):
+            label = pt.find(f"{ncx}navLabel/{ncx}text")
+            content = pt.find(f"{ncx}content")
+            if content is not None and content.get("src"):
+                title = (label.text or "") if label is not None else ""
+                out.append((depth, re.sub(r"\s+", " ", title).strip(),
+                            content.get("src")))
+            walk(pt, depth + 1)
+
+    if (nav_map := root.find(f"{ncx}navMap")) is not None:
+        walk(nav_map, 1)
+    return out
+
+
+def load_toc(z, base, items):
+    """Return [(depth, title, file, anchor)] from the nav document or the NCX.
+
+    EPUB 3 books carry a nav document flagged `properties="nav"`; EPUB 2 books
+    carry an NCX. Either one is authored by the publisher and states the real
+    chapter structure, which is why it beats inferring structure from the spine.
+    """
+    candidates = [("nav", i.get("href")) for i in items
+                  if "nav" in (i.get("properties") or "").split()]
+    candidates += [("ncx", i.get("href")) for i in items
+                   if i.get("media-type") == "application/x-dtbncx+xml"]
+
+    for kind, href in candidates:
+        if not href or not (path := resolve(base, href)):
+            continue
+        try:
+            raw = z.read(path).decode("utf-8", "replace")
+        except KeyError:
+            continue
+        if kind == "nav":
+            parser = NavParser()
+            parser.feed(raw)
+            entries = parser.entries
+        else:
+            entries = parse_ncx(raw)
+
+        doc_dir = posixpath.dirname(path)
+        resolved = []
+        for depth, title, ref in entries:
+            if file := resolve(doc_dir, ref):
+                anchor = ref.split("#", 1)[1] if "#" in ref else None
+                resolved.append((depth, title, file, anchor))
+        if resolved:
+            return resolved
+    return []
+
+
+def split_by_toc(z, spine, toc):
+    """Slice spine documents at the anchor positions the ToC points to.
+
+    This handles the two shapes the spine alone gets wrong: several chapters
+    packed into one XHTML file (split at their anchors) and one chapter spread
+    across several files (a file no ToC entry points into is a continuation of
+    the chapter before it, so it gets appended rather than starting a new one).
+    """
+    by_file = {}
+    for depth, title, file, anchor in toc:
+        by_file.setdefault(file, []).append((depth, title, anchor))
+
+    chapters = []
+    for path in spine:
+        try:
+            raw = z.read(path).decode("utf-8", "replace")
+        except KeyError:
+            continue
+        parser = TextExtractor()
+        parser.feed(raw)
+        body, anchors = parser.raw(), parser.anchors
+
+        entries = by_file.get(path, [])
+        if not entries:
+            if chapters and body.strip():
+                chapters[-1][1].append(body)
+            elif body.strip():
+                chapters.append([None, [body]])
+            continue
+
+        # A part-level ToC entry usually links to the same anchor as its first
+        # chapter. Those aren't two boundaries, they're one — so collapse
+        # entries that resolve to the same offset and keep the deepest, which is
+        # the specific chapter title rather than the navigational parent.
+        best = {}
+        for depth, title, anchor in entries:
+            off = anchors.get(anchor, 0) if anchor else 0
+            if off not in best or depth > best[off][0]:
+                best[off] = (depth, title)
+        points = sorted((off, title) for off, (_, title) in best.items())
+        # Text before the first anchor still belongs to the preceding chapter.
+        if points[0][0] > 0 and chapters and body[: points[0][0]].strip():
+            chapters[-1][1].append(body[: points[0][0]])
+
+        for i, (off, title) in enumerate(points):
+            end = points[i + 1][0] if i + 1 < len(points) else len(body)
+            chapters.append([title, [body[off:end]]])
+
+    return [(t, normalize("\n\n".join(parts))) for t, parts in chapters]
+
+
+def read_epub_by_spine(z, spine):
+    """Fallback when a book has no usable ToC: one chapter per spine document."""
+    chapters = []
+    for path in spine:
+        try:
+            raw = z.read(path).decode("utf-8", "replace")
+        except KeyError:
+            continue
+        text = html_to_text(raw)
+        if len(text.split()) < 20:  # nav docs, title pages, blank sections
+            continue
+        title = None
+        if m := re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I):
+            title = html_to_text(m.group(1))[:120] or None
+        chapters.append((title or text.split("\n", 1)[0][:120], text))
+    return chapters
+
+
 def read_epub(path):
     with zipfile.ZipFile(path) as z:
         container = ET.fromstring(z.read("META-INF/container.xml"))
         opf_path = container.find(".//c:rootfile", NS).get("full-path")
-        base = opf_path.rsplit("/", 1)[0] + "/" if "/" in opf_path else ""
+        base = posixpath.dirname(opf_path)
         opf = ET.fromstring(z.read(opf_path))
 
         meta = {}
@@ -215,26 +414,23 @@ def read_epub(path):
             if el is not None and el.text:
                 meta[key] = el.text.strip()
 
-        manifest = {i.get("id"): i.get("href")
-                    for i in opf.findall(".//opf:manifest/opf:item", NS)}
-        chapters = []
+        items = opf.findall(".//opf:manifest/opf:item", NS)
+        by_id = {i.get("id"): i for i in items}
+        spine = []
         for ref in opf.findall(".//opf:spine/opf:itemref", NS):
-            href = manifest.get(ref.get("idref"))
-            if not href:
-                continue
-            try:
-                raw = z.read(base + href.split("#")[0]).decode("utf-8", "replace")
-            except KeyError:
-                continue
-            text = html_to_text(raw)
-            if len(text.split()) < 20:  # nav docs, title pages, blank sections
-                continue
-            title = None
-            if m := re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I):
-                title = html_to_text(m.group(1))[:120] or None
-            if not title:
-                title = text.split("\n", 1)[0][:120]
-            chapters.append((title, text))
+            item = by_id.get(ref.get("idref"))
+            if item is not None and item.get("href"):
+                if p := resolve(base, item.get("href")):
+                    spine.append(p)
+
+        chapters = []
+        if toc := load_toc(z, base, items):
+            chapters = [(t, b) for t, b in split_by_toc(z, spine, toc)
+                        if len(b.split()) >= 20]
+            meta["_structure"] = f"toc ({len(toc)} entries)"
+        if not chapters:
+            chapters = read_epub_by_spine(z, spine)
+            meta["_structure"] = "spine (no usable toc)"
         return meta, chapters
 
 
@@ -427,6 +623,7 @@ def main():
         "title": meta.get("title", path.stem),
         "author": meta.get("creator", "unknown"),
         "metadata": meta,
+        "structure_source": meta.get("_structure", "n/a"),
         "mode": mode,
         "mode_evidence": {"dialogue_ratio": dialogue_ratio,
                           "scholarly_sections": scholarly},
@@ -445,6 +642,7 @@ def main():
     print(f"  library:  {root}")
     print(f"  mode:     {mode} (dialogue ratio {dialogue_ratio}"
           f"{', scholarly: ' + ','.join(scholarly) if scholarly else ''})")
+    print(f"  structure: {manifest['structure_source']}")
     print(f"  chapters: {len(records)}   words: {manifest['total_words']:,}")
     print(f"  tokens:   {total:,} ({counted})")
     print(f"  batches:  {len(batches)} indexing subagents "

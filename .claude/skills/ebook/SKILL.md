@@ -65,9 +65,25 @@ Token counts are offline estimates (±15%) unless you pass `--exact`, which uses
 Anthropic's free `count_tokens` endpoint and needs `ANTHROPIC_API_KEY`. Estimates
 are fine for batching; use `--exact` when the user asks what a book actually costs.
 
-EPUB gives the best chapter titles because the spine is explicit. Plain text
-relies on heading detection and degrades gracefully — if titles look wrong, say
-so rather than pretending the structure is clean.
+Chapter structure comes from the best source the file offers, and `manifest.json`
+records which one was used in `structure_source`:
+
+| Source | Used for | Reliability |
+|---|---|---|
+| `toc (N entries)` | EPUB 3 nav document or EPUB 2 NCX | Publisher-authored — trust it |
+| `spine (no usable toc)` | EPUB with a missing or empty ToC | Titles are guesses from `<title>` tags |
+| `n/a` | Plain text, PDF | Heading detection; verify before relying on titles |
+
+The ToC is authoritative because it's written by a human and points at exact
+anchors, which the spine can't do. Spine order is a *packaging* detail and gets
+two common layouts wrong: several chapters inside one XHTML file (the ToC splits
+them at `#fragment` anchors, the spine sees one blob) and one chapter spread
+across several files (the spine emits several fake chapters, the ToC merges them).
+
+When `structure_source` isn't `toc`, glance at the chapter titles in the manifest
+before indexing. If they look wrong, say so rather than presenting a clean
+structure that isn't there — and consider converting to EPUB first, since
+`ebook-convert` will usually synthesise a real ToC.
 
 Check `mode` in the manifest and sanity-check it against the opening pages. The
 detector keys on dialogue density, which is reliable for novels and essays but
