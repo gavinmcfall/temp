@@ -1,0 +1,456 @@
+#!/usr/bin/env python3
+"""Ingest an ebook into a library folder: clean chapter text + a batching plan.
+
+This step uses zero model tokens. It does the deterministic work — unzip, strip
+markup, split into chapters, count tokens, pack chapters into balanced batches —
+so the indexing subagents only ever spend tokens on reading prose.
+
+Formats: .epub, .txt, .md, .html/.xhtml natively; .mobi/.azw3 via Calibre's
+ebook-convert and .pdf via pdftotext/pypdf if those happen to be installed.
+
+Usage:
+    python ingest.py BOOK [--library DIR] [--slug NAME] [--exact]
+                          [--batch-tokens N] [--max-chapter-tokens N]
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from html.parser import HTMLParser
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+DC = "{http://purl.org/dc/elements/1.1/}"
+NS = {
+    "c": "urn:oasis:names:tc:opendocument:xmlns:container",
+    "opf": "http://www.idpf.org/2007/opf",
+}
+SKIP_TAGS = {"script", "style", "head", "svg"}
+BLOCK_TAGS = {"p", "div", "br", "li", "tr", "blockquote",
+              "h1", "h2", "h3", "h4", "h5", "h6", "section"}
+
+# Chapter-ish headings in plain text: "CHAPTER IV.", "Part Two", "17.", "PROLOGUE"
+# The numeral is required after a keyword — otherwise a stray line reading just
+# "part." inside the prose gets mistaken for a chapter break.
+_WORD_NUM = (r"one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+             r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty")
+_SEP = r"[\s.:,—–-]*"
+HEADING_RE = re.compile(
+    rf"^\s{{0,8}}(?:"
+    rf"(?:chapter|part|book|section|canto|act|volume)\b{_SEP}"
+    rf"(?:[ivxlcdm]{{1,9}}|\d{{1,3}}|{_WORD_NUM})\b{_SEP}"
+    rf"|(?:prologue|epilogue|introduction|foreword|afterword|preface|conclusion)\b{_SEP}"
+    rf"|\d{{1,3}}{_SEP}"
+    rf")$",
+    re.IGNORECASE,
+)
+GUTENBERG_START = re.compile(r"\*\*\*\s*START OF (THE|THIS) PROJECT GUTENBERG.*?\*\*\*", re.I)
+GUTENBERG_END = re.compile(r"\*\*\*\s*END OF (THE|THIS) PROJECT GUTENBERG.*?\*\*\*", re.I)
+
+
+# ---------------------------------------------------------------- text cleanup
+
+class TextExtractor(HTMLParser):
+    """Strip (X)HTML to plain text while keeping paragraph boundaries."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self.skip_depth = [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in SKIP_TAGS:
+            self.skip_depth += 1
+        elif tag in BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in SKIP_TAGS and self.skip_depth:
+            self.skip_depth -= 1
+        elif tag in BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self.skip_depth:
+            self.parts.append(data)
+
+    def text(self):
+        return normalize("".join(self.parts))
+
+
+def strip_bracket_blocks(text, keywords=("Illustration", "Music", "Sidenote")):
+    """Remove [Illustration: ...] style editorial blocks, including nested ones.
+
+    These are pure noise for indexing — they inflate token counts and, worse,
+    can land inside an extracted quote, which then fails verification against
+    the text a human would actually read.
+    """
+    out, i = [], 0
+    while i < len(text):
+        if text[i] == "[" and any(text.startswith("[" + k, i) for k in keywords):
+            depth, j = 0, i
+            while j < len(text):
+                if text[j] == "[":
+                    depth += 1
+                elif text[j] == "]":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            i = j + 1  # unbalanced bracket just runs to end of text, which is fine
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def normalize(raw):
+    """Collapse whitespace and rejoin words hyphenated across a line break.
+
+    De-hyphenation matters for quote verification later: a review that quotes
+    "light-\nhouse" should still match "lighthouse" in the source.
+    """
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    raw = strip_bracket_blocks(raw)
+    raw = re.sub(r"(\w)-\n(\w)", r"\1\2", raw)
+    raw = re.sub(r"[ \t\f\v ]+", " ", raw)
+    raw = re.sub(r" *\n *", "\n", raw)
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
+    return raw.strip()
+
+
+def strip_gutenberg(text):
+    if m := GUTENBERG_START.search(text):
+        text = text[m.end():]
+    if m := GUTENBERG_END.search(text):
+        text = text[: m.start()]
+    return text.strip()
+
+
+def html_to_text(raw):
+    p = TextExtractor()
+    p.feed(raw)
+    return p.text()
+
+
+# ------------------------------------------------------------------- splitting
+
+def split_plain_text(text, target_words=3000):
+    """Split loose text into chapters, falling back to fixed-size chunks.
+
+    Prefer real headings; if the book has none (common in converted files),
+    chunk on paragraph boundaries so digests still line up with readable units.
+    """
+    lines = text.split("\n")
+    cuts, titles = [], []
+    for i, line in enumerate(lines):
+        if HEADING_RE.match(line) and len(line.strip()) < 60:
+            cuts.append(i)
+            titles.append(line.strip())
+
+    chunks = []
+    if len(cuts) >= 3:  # 1-2 matches is usually a false positive, not a structure
+        cuts.append(len(lines))
+        for n, start in enumerate(cuts[:-1]):
+            body = "\n".join(lines[start + 1 : cuts[n + 1]]).strip()
+            if body:
+                chunks.append((titles[n], body))
+        head = "\n".join(lines[: cuts[0]]).strip()
+        if head and len(head.split()) > 200:
+            chunks.insert(0, ("Front matter", head))
+    else:
+        paras, buf, count = text.split("\n\n"), [], 0
+        for para in paras:
+            buf.append(para)
+            count += len(para.split())
+            if count >= target_words:
+                chunks.append((None, "\n\n".join(buf).strip()))
+                buf, count = [], 0
+        if buf:
+            chunks.append((None, "\n\n".join(buf).strip()))
+    return [(t, b) for t, b in chunks if len(b.split()) >= 20]
+
+
+def split_oversized(chapters, max_tokens):
+    """Break any chapter too large for one digest into 'Part N' pieces.
+
+    A single digest covering 40k tokens of text gets thin and lossy; capping the
+    unit keeps every part of the book at comparable resolution.
+    """
+    out = []
+    for title, body in chapters:
+        if est_tokens(body) <= max_tokens:
+            out.append((title, body))
+            continue
+        paras = body.split("\n\n")
+        budget = max_tokens
+        buf, count, part = [], 0, 1
+        for para in paras:
+            buf.append(para)
+            count += est_tokens(para)
+            if count >= budget:
+                out.append((f"{title or 'Section'} (part {part})", "\n\n".join(buf)))
+                buf, count, part = [], 0, part + 1
+        if buf:
+            out.append((f"{title or 'Section'} (part {part})", "\n\n".join(buf)))
+    return out
+
+
+# -------------------------------------------------------------------- readers
+
+def read_epub(path):
+    with zipfile.ZipFile(path) as z:
+        container = ET.fromstring(z.read("META-INF/container.xml"))
+        opf_path = container.find(".//c:rootfile", NS).get("full-path")
+        base = opf_path.rsplit("/", 1)[0] + "/" if "/" in opf_path else ""
+        opf = ET.fromstring(z.read(opf_path))
+
+        meta = {}
+        for key in ("title", "creator", "language", "publisher", "date"):
+            el = opf.find(f".//{DC}{key}")
+            if el is not None and el.text:
+                meta[key] = el.text.strip()
+
+        manifest = {i.get("id"): i.get("href")
+                    for i in opf.findall(".//opf:manifest/opf:item", NS)}
+        chapters = []
+        for ref in opf.findall(".//opf:spine/opf:itemref", NS):
+            href = manifest.get(ref.get("idref"))
+            if not href:
+                continue
+            try:
+                raw = z.read(base + href.split("#")[0]).decode("utf-8", "replace")
+            except KeyError:
+                continue
+            text = html_to_text(raw)
+            if len(text.split()) < 20:  # nav docs, title pages, blank sections
+                continue
+            title = None
+            if m := re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I):
+                title = html_to_text(m.group(1))[:120] or None
+            if not title:
+                title = text.split("\n", 1)[0][:120]
+            chapters.append((title, text))
+        return meta, chapters
+
+
+def read_via_calibre(path):
+    if not shutil.which("ebook-convert"):
+        sys.exit(f"{path.suffix} needs Calibre. Install it, or convert to EPUB first:\n"
+                 f"  ebook-convert '{path}' '{path.with_suffix('.epub')}'")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "converted.epub"
+        subprocess.run(["ebook-convert", str(path), str(out)],
+                       check=True, capture_output=True)
+        return read_epub(out)
+
+
+def read_pdf(path):
+    if shutil.which("pdftotext"):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out.txt"
+            subprocess.run(["pdftotext", "-layout", str(path), str(out)],
+                           check=True, capture_output=True)
+            text = out.read_text("utf-8", errors="replace")
+    else:
+        try:
+            from pypdf import PdfReader
+        except ImportError:
+            sys.exit("PDF needs `pdftotext` (poppler-utils) or `pip install pypdf`.")
+        text = "\n\n".join(p.extract_text() or "" for p in PdfReader(str(path)).pages)
+    return {"title": path.stem}, split_plain_text(normalize(text))
+
+
+def read_book(path):
+    suffix = path.suffix.lower()
+    if suffix == ".epub":
+        return read_epub(path)
+    if suffix in (".mobi", ".azw", ".azw3", ".fb2", ".lit", ".pdb"):
+        return read_via_calibre(path)
+    if suffix == ".pdf":
+        return read_pdf(path)
+    if suffix in (".html", ".htm", ".xhtml"):
+        text = html_to_text(path.read_text("utf-8", errors="replace"))
+    else:  # .txt, .md, anything else plain
+        text = normalize(path.read_text("utf-8", errors="replace"))
+    return {"title": path.stem}, split_plain_text(strip_gutenberg(text))
+
+
+# --------------------------------------------------------------------- tokens
+
+def est_tokens(text):
+    """Offline estimate. Within ~15% for English prose on current tokenizers."""
+    return round(len(text) / 3.6)
+
+
+def exact_tokens(texts, model):
+    """Exact counts via the count_tokens endpoint (free, but needs a key)."""
+    try:
+        from anthropic import Anthropic
+    except ImportError:
+        print("  (anthropic package not installed — using estimates)", file=sys.stderr)
+        return None
+    try:
+        client = Anthropic()
+        counts = []
+        for text in texts:
+            resp = client.messages.count_tokens(
+                model=model, messages=[{"role": "user", "content": text}])
+            counts.append(resp.input_tokens)
+        return counts
+    except Exception as exc:
+        print(f"  (count_tokens unavailable: {exc} — using estimates)", file=sys.stderr)
+        return None
+
+
+# ------------------------------------------------------------ mode + batching
+
+def detect_mode(chapters):
+    """Guess fiction vs nonfiction so the right digest template gets used.
+
+    Dialogue density is the strongest cheap signal: novels are full of quoted
+    speech, argument-driven books are not. Returned with the evidence so the
+    agent reading this can overrule it after seeing actual prose.
+    """
+    sample = "\n\n".join(body for _, body in chapters[: max(3, len(chapters) // 3)])
+    paras = [p for p in sample.split("\n") if len(p.split()) > 3]
+    if not paras:
+        return "unknown", 0.0, []
+
+    speech = re.compile(r'["“”‘’\']\s*[A-Z]|\b(said|asked|replied|whispered|shouted)\b')
+    dialogue_ratio = sum(bool(speech.search(p)) for p in paras) / len(paras)
+
+    titles = " ".join((t or "") for t, _ in chapters).lower()
+    scholarly = [w for w in ("bibliography", "references", "endnotes", "appendix",
+                             "index", "notes", "acknowledgments") if w in titles]
+
+    if dialogue_ratio >= 0.12 and len(scholarly) < 3:
+        mode = "fiction"
+    elif dialogue_ratio < 0.05:
+        mode = "nonfiction"
+    else:
+        mode = "fiction" if dialogue_ratio >= 0.08 else "nonfiction"
+    return mode, round(dialogue_ratio, 3), scholarly
+
+
+def pack_batches(chapters, budget):
+    """Greedily pack chapters into batches under a token budget.
+
+    Each batch becomes one indexing subagent, so this is what determines the
+    fan-out width. Chapters stay in reading order within a batch — a digest is
+    much better when the agent sees what immediately preceded.
+    """
+    batches, current, total = [], [], 0
+    for ch in chapters:
+        if current and total + ch["tokens"] > budget:
+            batches.append(current)
+            current, total = [], 0
+        current.append(ch)
+        total += ch["tokens"]
+    if current:
+        batches.append(current)
+    return batches
+
+
+def slugify(text):
+    slug = re.sub(r"[^a-z0-9]+", "-", (text or "book").lower()).strip("-")
+    return slug[:60] or "book"
+
+
+# ------------------------------------------------------------------------ main
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("book")
+    ap.add_argument("--library",
+                    default=os.environ.get("EBOOK_LIBRARY",
+                                           str(Path.home() / ".ebook-library")))
+    ap.add_argument("--slug")
+    ap.add_argument("--model", default="claude-opus-5")
+    ap.add_argument("--exact", action="store_true",
+                    help="use the count_tokens API for exact counts")
+    ap.add_argument("--batch-tokens", type=int, default=30000,
+                    help="token budget per indexing subagent")
+    ap.add_argument("--max-chapter-tokens", type=int, default=12000,
+                    help="split any chapter larger than this into parts")
+    args = ap.parse_args()
+
+    path = Path(args.book).expanduser()
+    if not path.exists():
+        sys.exit(f"No such file: {path}")
+
+    meta, chapters = read_book(path)
+    if not chapters:
+        sys.exit("No readable text found. If this is a scanned PDF it needs OCR first.")
+
+    chapters = [(t, strip_gutenberg(b)) for t, b in chapters]
+    chapters = split_oversized(chapters, args.max_chapter_tokens)
+
+    slug = args.slug or slugify(meta.get("title") or path.stem)
+    root = Path(args.library).expanduser() / slug
+    (root / "chapters").mkdir(parents=True, exist_ok=True)
+    (root / "index").mkdir(exist_ok=True)
+    (root / "reviews").mkdir(exist_ok=True)
+
+    bodies = [b for _, b in chapters]
+    counts = exact_tokens(bodies, args.model) if args.exact else None
+    counted = "exact" if counts else "estimated"
+
+    records = []
+    for n, (title, body) in enumerate(chapters, start=1):
+        name = f"{n:04d}.txt"
+        (root / "chapters" / name).write_text(body, encoding="utf-8")
+        records.append({
+            "id": n,
+            "file": f"chapters/{name}",
+            "title": (title or f"Section {n}").strip(),
+            "words": len(body.split()),
+            "chars": len(body),
+            "tokens": counts[n - 1] if counts else est_tokens(body),
+        })
+
+    batches = pack_batches(records, args.batch_tokens)
+    for i, batch in enumerate(batches, start=1):
+        for ch in batch:
+            ch["batch"] = i
+
+    mode, dialogue_ratio, scholarly = detect_mode(chapters)
+    total = sum(c["tokens"] for c in records)
+
+    manifest = {
+        "slug": slug,
+        "source": str(path.resolve()),
+        "title": meta.get("title", path.stem),
+        "author": meta.get("creator", "unknown"),
+        "metadata": meta,
+        "mode": mode,
+        "mode_evidence": {"dialogue_ratio": dialogue_ratio,
+                          "scholarly_sections": scholarly},
+        "token_count_method": counted,
+        "total_tokens": total,
+        "total_words": sum(c["words"] for c in records),
+        "chapters": records,
+        "batches": [{"batch": i,
+                     "chapters": [c["id"] for c in b],
+                     "tokens": sum(c["tokens"] for c in b)}
+                    for i, b in enumerate(batches, start=1)],
+    }
+    (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    print(f"{manifest['title']} — {manifest['author']}")
+    print(f"  library:  {root}")
+    print(f"  mode:     {mode} (dialogue ratio {dialogue_ratio}"
+          f"{', scholarly: ' + ','.join(scholarly) if scholarly else ''})")
+    print(f"  chapters: {len(records)}   words: {manifest['total_words']:,}")
+    print(f"  tokens:   {total:,} ({counted})")
+    print(f"  batches:  {len(batches)} indexing subagents "
+          f"(~{total // max(1, len(batches)):,} tokens each)")
+    print(f"\nRead-once cost at $5/MTok: ${total * 5 / 1e6:,.2f}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,168 @@
+---
+name: ebook
+description: >
+  Ingest an ebook (EPUB, MOBI, PDF, TXT) into a compact searchable index using
+  parallel subagents, then answer questions about it, build summaries, and write
+  a review that sanity-checks against the user's own handwritten review to catch
+  memorable moments, craft observations, factual slips, and coverage gaps they
+  missed. Use this skill whenever the user points at a book file, mentions
+  indexing or ingesting a book, asks what happens in a book they've loaded, asks
+  for a summary or review of a book, or wants their own review checked against
+  the text — even if they don't name this skill or say the word "index". Also
+  use it for follow-up questions about any book already in the library.
+---
+
+# Ebook indexing, querying, and review sanity-checking
+
+## The idea
+
+A novel is 150k–250k tokens. Reading it into context to answer one question is
+slow and expensive, and doing that again for the next question is worse.
+
+So this skill pays the reading cost **once**, in parallel, and converts the book
+into a two-tier index: a per-chapter digest layer roughly 3× smaller than the
+book, and a whole-book synthesis about 100× smaller. Most questions are answered
+from the synthesis alone, dropping to digests or raw chapter text only when the
+question actually needs that resolution. The book stays on disk; it never has to
+sit in context again.
+
+Measured on a 198k-token novel (61 chapters) — treat as an order of magnitude:
+
+| Phase | Cost | Notes |
+|---|---|---|
+| Ingest | 0 tokens | Pure Python — unzip, clean, split, count |
+| Index | ~200k, spread across N parallel subagents | One-time; ~1k per chapter digest |
+| Whole-book synthesis | ~64k in, ~2k out | One-time |
+| Typical question | ~2–6k | `book.md` plus a couple of digests |
+| Writing a review | ~64k | Reads the full digest layer |
+
+The break-even against re-reading the book is the *second* question, and most
+questions never touch the digest layer at all.
+
+## The rule that makes it efficient
+
+**Never read chapter text into your own context as the orchestrator.** Subagents
+read prose and write digests to disk; they return a one-line confirmation, not
+their output. If digests come back through the conversation, the whole book ends
+up in your context anyway and the architecture has bought nothing.
+
+The same applies when using the index later: read `index/book.md` first and pull
+individual chapter digests only when the question needs them.
+
+## Workflow
+
+### 1. Ingest (no model tokens)
+
+```bash
+python scripts/ingest.py BOOK_FILE [--library DIR] [--exact]
+```
+
+Writes to `$EBOOK_LIBRARY/<slug>/` (default `~/.ebook-library`). Produces cleaned
+per-chapter text, a `manifest.json` with token counts, a fiction/nonfiction guess,
+and a **batch plan** — chapters packed into groups sized for one subagent each.
+
+Token counts are offline estimates (±15%) unless you pass `--exact`, which uses
+Anthropic's free `count_tokens` endpoint and needs `ANTHROPIC_API_KEY`. Estimates
+are fine for batching; use `--exact` when the user asks what a book actually costs.
+
+EPUB gives the best chapter titles because the spine is explicit. Plain text
+relies on heading detection and degrades gracefully — if titles look wrong, say
+so rather than pretending the structure is clean.
+
+Check `mode` in the manifest and sanity-check it against the opening pages. The
+detector keys on dialogue density, which is reliable for novels and essays but
+can misread memoir, narrative nonfiction, or heavily-quoted interviews. It is a
+starting guess, not a verdict — override it if the prose says otherwise.
+
+### 2. Index (parallel subagents)
+
+Read `manifest.json` for the batch plan, then spawn **one subagent per batch, all
+in a single message** so they run concurrently. Give each subagent:
+
+- the book directory and the exact chapter files in its batch
+- the path to the right template: `references/digest-templates.md`
+- the instruction to write `index/NNNN.md` per chapter and return only a
+  confirmation line
+
+A workable subagent prompt:
+
+> Read `references/digest-templates.md` and follow the **fiction** template.
+> For each of these chapters in `<book_dir>` — `chapters/0012.txt` … `chapters/0018.txt` —
+> write a digest to `index/0012.md` … `index/0018.md`.
+> Read the chapters in order; earlier ones give you context for later ones.
+> Quote only text you can see in the file, copied character-for-character.
+> Return one line: how many digests you wrote. Do not return their contents.
+
+Chapters stay in reading order within a batch deliberately — a digest written
+without knowing what just happened tends to miss callbacks and reversals, which
+are exactly the details worth surfacing later.
+
+### 3. Synthesize and verify
+
+Spawn one more subagent to read every `index/*.md` and write `index/book.md`:
+the whole-book skeleton — arc or argument structure, cast or key concepts,
+timeline, themes and motifs traced across chapters, and the handful of moments
+that define the book. Aim for something that stands alone as an answer to "what
+is this book" in about 1,500–2,500 tokens.
+
+Then gate on:
+
+```bash
+python scripts/verify.py LIBRARY/SLUG
+```
+
+This catches the two failures that actually matter: a chapter that never got a
+digest, and a quote that isn't in the book. The second is the dangerous one — a
+paraphrase that drifted into quotation marks puts false words in the author's
+voice, and a review built on it is worse than no review. Fix anything it flags
+before showing the user a summary or review.
+
+### 4. Use the index
+
+**Questions.** Start with `index/book.md`. If the question is chapter-specific,
+add those digests. If it needs exact wording, `grep` the chapter text — that's
+what it's there for. Say which chapters an answer came from, so the user can
+check you.
+
+**Summaries.** Ask what it's for before choosing a shape: a spoiler-free blurb,
+a full-arc synopsis, a chapter-by-chapter outline, and a thematic essay are
+different documents built from different parts of the index.
+
+**Reviews and the gap report.** Read `references/review-workflow.md` — this is
+the main event and has its own procedure.
+
+## Library layout
+
+```
+<library>/<slug>/
+├── manifest.json      # chapters, token counts, batch plan, mode
+├── chapters/0001.txt  # cleaned text, one file per chapter
+├── index/
+│   ├── 0001.md        # per-chapter digest
+│   └── book.md        # whole-book synthesis
+└── reviews/           # generated reviews and gap reports
+```
+
+Books are copyrighted and the text is bulky — keep the library outside any repo,
+or gitignore it. The `index/` folder is derived and small, so it's reasonable to
+keep if the user wants their notes version-controlled.
+
+## Working with an already-indexed book
+
+Check the library before ingesting anything — re-indexing a book that's already
+there wastes the entire ingest cost. If `manifest.json` and `index/book.md` both
+exist, go straight to answering. Re-index only if the source file changed or the
+user asks for it.
+
+## When this isn't the right approach
+
+For a short story, an article, or anything under ~15k tokens, just read the file.
+The indexing overhead only pays off at book length, and a digest of a short piece
+loses more than it saves.
+
+## References
+
+- `references/digest-templates.md` — the fiction and nonfiction extraction
+  templates the indexing subagents follow. Read before spawning them.
+- `references/review-workflow.md` — writing the review and the four-part gap
+  report against the user's own review. Read before any review task.
