@@ -383,6 +383,18 @@ def split_by_toc(z, spine, toc):
     return [(t, normalize("\n\n".join(parts))) for t, parts in chapters]
 
 
+def segmentation_failed(chapters, dominance=0.35):
+    """True when one chapter holds so much of the book that no real split happened.
+
+    Counting ToC entries is a poor test — a stub nav with a single "Start" link
+    parses perfectly well. What matters is whether the entries actually divided
+    the text, which this measures directly and independently of entry count.
+    """
+    words = [len(b.split()) for _, b in chapters]
+    total = sum(words)
+    return bool(words) and total > 0 and max(words) / total > dominance
+
+
 def read_epub_by_spine(z, spine):
     """Fallback when a book has no usable ToC: one chapter per spine document."""
     chapters = []
@@ -394,11 +406,32 @@ def read_epub_by_spine(z, spine):
         text = html_to_text(raw)
         if len(text.split()) < 20:  # nav docs, title pages, blank sections
             continue
-        title = None
-        if m := re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I):
-            title = html_to_text(m.group(1))[:120] or None
-        chapters.append((title or text.split("\n", 1)[0][:120], text))
+        chapters.append((guess_spine_title(raw, text), text))
     return chapters
+
+
+def guess_spine_title(raw, text):
+    """Name a spine document, preferring sources that vary between chapters.
+
+    `<title>` is checked last on purpose: converters routinely stamp the book's
+    own title into every split file, which yields sixty chapters all sharing one
+    name. A real heading element is best; failing that, converted files usually
+    leave the chapter label as the first line of the body text.
+    """
+    if m := re.search(r"<h[1-6][^>]*>(.*?)</h[1-6]>", raw, re.S | re.I):
+        if heading := re.sub(r"\s+", " ", html_to_text(m.group(1))).strip():
+            return heading[:120]
+
+    first, _, rest = text.partition("\n")
+    first = first.strip()
+    # A short opening line above further text is a heading in all but name.
+    if rest.strip() and 0 < len(first) <= 60:
+        return first[:120]
+
+    if m := re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I):
+        if t := html_to_text(m.group(1)).strip():
+            return t[:120]
+    return first[:120] or "Untitled section"
 
 
 def read_epub(path):
@@ -428,6 +461,18 @@ def read_epub(path):
             chapters = [(t, b) for t, b in split_by_toc(z, spine, toc)
                         if len(b.split()) >= 20]
             meta["_structure"] = f"toc ({len(toc)} entries)"
+
+        # A stub ToC — one "Start" entry, common in converted files — parses
+        # fine but segments nothing, leaving the whole book as a single chapter
+        # that later gets chopped into arbitrary fixed-size parts. Judge the ToC
+        # by whether it actually divided the text, not by whether it parsed.
+        if chapters and segmentation_failed(chapters):
+            spine_chapters = read_epub_by_spine(z, spine)
+            if len(spine_chapters) > len(chapters):
+                meta["_structure"] = (f"spine ({len(spine_chapters)} docs; "
+                                      f"toc had {len(toc)} entries and did not segment)")
+                chapters = spine_chapters
+
         if not chapters:
             chapters = read_epub_by_spine(z, spine)
             meta["_structure"] = "spine (no usable toc)"
