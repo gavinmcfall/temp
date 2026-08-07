@@ -436,8 +436,14 @@ def read_epub(path):
 
 def read_via_calibre(path):
     if not shutil.which("ebook-convert"):
-        sys.exit(f"{path.suffix} needs Calibre. Install it, or convert to EPUB first:\n"
-                 f"  ebook-convert '{path}' '{path.with_suffix('.epub')}'")
+        sys.exit(
+            f"{path.suffix} files need Calibre's `ebook-convert`, which is third-party\n"
+            f"software and is not bundled with this skill.\n\n"
+            f"  install:  brew install --cask calibre   (or calibre-ebook.com)\n"
+            f"  then:     ebook-convert '{path}' '{path.with_suffix('.epub')}'\n\n"
+            f"Converting to EPUB is worth doing anyway — EPUB carries a table of\n"
+            f"contents, which gives far more reliable chapter splitting."
+        )
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "converted.epub"
         subprocess.run(["ebook-convert", str(path), str(out)],

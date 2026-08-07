@@ -57,6 +57,24 @@ individual chapter digests only when the question needs them.
 python scripts/ingest.py BOOK_FILE [--library DIR] [--exact]
 ```
 
+**Format support.** EPUB, TXT, MD and HTML need nothing beyond the Python
+standard library. Two formats depend on third-party tools that are *not* bundled
+and are often absent:
+
+| Format | Requires | Install |
+|---|---|---|
+| MOBI, AZW3, FB2, LIT | Calibre's `ebook-convert` | `brew install --cask calibre`, or calibre-ebook.com |
+| PDF | `pdftotext`, or pypdf | `apt install poppler-utils` / `pip install pypdf` |
+
+`ingest.py` exits with the specific install hint if one is missing, so a failure
+here is a missing dependency, not a bad book file.
+
+Prefer EPUB whenever there's a choice — it's the only format carrying a real
+table of contents, which is what makes chapter splitting reliable (see below).
+Converting MOBI to EPUB with Calibre once, up front, is usually better than
+ingesting the MOBI directly. PDF is the weakest path: no ToC, and layout-driven
+extraction that mangles footnotes, headers and multi-column pages.
+
 Writes to `$EBOOK_LIBRARY/<slug>/` (default `~/.ebook-library`). Produces cleaned
 per-chapter text, a `manifest.json` with token counts, a fiction/nonfiction guess,
 and a **batch plan** — chapters packed into groups sized for one subagent each.
