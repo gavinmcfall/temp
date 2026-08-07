@@ -194,6 +194,25 @@ For a short story, an article, or anything under ~15k tokens, just read the file
 The indexing overhead only pays off at book length, and a digest of a short piece
 loses more than it saves.
 
+## Surveying a whole library
+
+Before ingesting anything from a large collection, or when deciding which books
+will parse cleanly:
+
+```bash
+python scripts/scan_library.py ~/Books [--suggest N] [--only toc-stub] [--csv out.csv]
+```
+
+Walks the tree recursively and gives each book a verdict — `toc-ok`, `toc-stub`,
+`no-toc`, `needs-calibre`, `needs-pdf-tool`, `drm`, `error` — using the same
+segmentation rule `ingest.py` applies, so it predicts real behaviour rather than
+offering a second opinion. It reads only package metadata and stored file sizes,
+so it's fast on big libraries; `--deep` extracts text for an exact answer.
+
+`--suggest N` returns a structurally diverse sample (nested ToCs, anchor-shared
+files, multi-file chapters), which is what you want when assembling test cases —
+variety exercises more code paths than volume.
+
 ## References
 
 - `references/digest-templates.md` — the fiction and nonfiction extraction

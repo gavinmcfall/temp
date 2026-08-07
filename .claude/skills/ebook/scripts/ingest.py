@@ -383,16 +383,25 @@ def split_by_toc(z, spine, toc):
     return [(t, normalize("\n\n".join(parts))) for t, parts in chapters]
 
 
-def segmentation_failed(chapters, dominance=0.35):
+def segmentation_failed(chapters, dominance=0.35, min_for_ratio=5):
     """True when one chapter holds so much of the book that no real split happened.
 
     Counting ToC entries is a poor test — a stub nav with a single "Start" link
     parses perfectly well. What matters is whether the entries actually divided
     the text, which this measures directly and independently of entry count.
+
+    The share test only means something once there are enough chapters for a
+    dominant one to be surprising: in a three-chapter book the longest chapter
+    is *expected* to hold a third or more. Below that threshold, only a single
+    chapter swallowing the whole book counts as a failure.
     """
     words = [len(b.split()) for _, b in chapters]
     total = sum(words)
-    return bool(words) and total > 0 and max(words) / total > dominance
+    if not words or total == 0:
+        return True
+    if len(words) < min_for_ratio:
+        return len(words) == 1
+    return max(words) / total > dominance
 
 
 def read_epub_by_spine(z, spine):
